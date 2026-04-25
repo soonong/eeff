@@ -1,0 +1,5 @@
+category: ""          # g2b | hanjeon_dogang_lh | jichache | pdf_text | pdf_scan | edge_case
+difficulty: 1         # 1(쉬움) | 2(보통) | 3(어려움)
+labeler: ""           # 라벨러 이름/이니셜
+reviewed_at: null     # ISO 날짜 예: 2026-04-30
+notes: ""             # 특이사항, 엣지케이스 설명 등
