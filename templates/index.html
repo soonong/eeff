@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 입찰 공고 분석 시스템</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>AI 입찰 공고 분석 시스템</h1>
+    <p class="subtitle">HTML / PDF 공고문을 업로드하면 핵심 입찰 정보를 구조화 JSON으로 추출합니다.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. 공고문 입력</h2>
+      <form id="analyze-form">
+        <label for="file-input">파일 업로드 (HTML/PDF, 최대 10MB)</label>
+        <input id="file-input" type="file" name="file" accept=".html,.htm,.pdf,.txt" />
+
+        <div class="divider">또는</div>
+
+        <label for="url-input">공고문 URL</label>
+        <input id="url-input" type="url" name="url" placeholder="https://www.g2b.go.kr/..." />
+
+        <button type="submit" id="submit-btn">분석하기</button>
+      </form>
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="card hidden" id="result">
+      <h2>2. 분석 결과</h2>
+      <div id="usage" class="usage"></div>
+
+      <h3>핵심 카드</h3>
+      <div id="summary-cards" class="summary-grid"></div>
+
+      <h3>입찰 참가자격 (종목)</h3>
+      <div id="jongmok-tree" class="jongmok"></div>
+
+      <h3>전체 추출 항목</h3>
+      <table class="results">
+        <thead>
+          <tr><th>항목</th><th>값</th><th>원문 근거</th></tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+
+      <h3>검증 이슈</h3>
+      <ul id="issues-list" class="issues"></ul>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
