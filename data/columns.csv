@@ -22,7 +22,7 @@ key,description,type,required,validator,few_shot
 공고확인,공고문 다운로드 URL 또는 식별 번호,str,false,,
 특수실적,특수 시공 실적 요건 텍스트(원문 그대로),str,false,,
 특수실적_공통,공통 적용되는 실적 기준(원문),str,false,,
-택수실적_내용,선택적 실적(택1) 내용,str,false,,
+특수실적_내용,선택적 실적(택1) 내용,str,false,,
 입찰방식,입찰 방식 분류,str,true,enum_bid_method,"'일반경쟁','제한경쟁','협상에 의한 계약','수의계약'"
 계약체결방식,총액/단가/장기계속 등 계약 형태,str,false,,
 공동도급형태,공동도급 가능 여부 및 형태,str,false,,"'공동도급(분담이행)'"
