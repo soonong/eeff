@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import csv
 import io
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from . import gemini_client, preprocess, storage
+from .adapter_dream import to_dream_format
 from .rules import load_rules
 from .schemas import AnalyzeResponse
 from .validator import validate
@@ -22,6 +26,21 @@ SUPPORTED_HTML_TYPES = {"text/html", "application/xhtml+xml"}
 SUPPORTED_PDF_TYPES = {"application/pdf"}
 
 _templates: Jinja2Templates | None = None
+
+_COLUMNS_CSV = Path(__file__).resolve().parent.parent / "data" / "columns.csv"
+
+
+@lru_cache(maxsize=1)
+def _load_required_keys() -> frozenset[str]:
+    """columns.csv에서 required=true 키만 추출 (한 번 캐시)."""
+    with _COLUMNS_CSV.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        return frozenset(
+            row["key"].strip()
+            for row in reader
+            if row.get("key", "").strip()
+            and (row.get("required") or "").strip().lower() in {"true", "1", "yes", "y"}
+        )
 
 
 def get_templates(request: Request) -> Jinja2Templates:
@@ -41,6 +60,7 @@ async def index(request: Request) -> HTMLResponse:
 async def analyze(
     file: UploadFile | None = None,
     url: Annotated[str | None, Form()] = None,
+    format: Annotated[str | None, Query(alias="format")] = None,
 ) -> JSONResponse:
     if file is None and not url:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="file 또는 url 중 하나는 필수입니다.")
@@ -75,6 +95,12 @@ async def analyze(
 
     issues_payload = [issue.model_dump() for issue in result.issues]
     storage.save_analysis(file_name, result.extracted, result.source, issues_payload, usage)
+
+    # ?format=dream → 꿈자동화 F02 ai_columns 행 리스트 반환
+    if format == "dream":
+        required_keys = set(_load_required_keys())
+        dream_rows = to_dream_format(result, required_keys=required_keys)
+        return JSONResponse(dream_rows)
 
     response = AnalyzeResponse(
         file_name=file_name,
