@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import sys
 from pathlib import Path
 
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -10,29 +11,59 @@ _STRIP_TAGS = ("script", "style", "nav", "header", "footer", "noscript", "iframe
 _BLANK_RUN = re.compile(r"\n[ \t]*\n[ \t]*\n+")
 _TRAILING_WS = re.compile(r"[ \t]+\n")
 
-# PDF 앞 5페이지까지 추출 (앞 2페이지에 공고 기본 정보가 없는 케이스 대응)
-_PDF_MAX_PAGES = 5
+# PDF 앞 10페이지까지 추출 (공고명/발주처/공고번호가 뒤 페이지에 있는 케이스 대응)
+_PDF_MAX_PAGES = 10
 
 
 def pdf_to_text(pdf_bytes: bytes, max_pages: int = _PDF_MAX_PAGES) -> str:
     """PDF 바이트에서 텍스트 추출 (앞 N페이지만).
 
-    pypdf 사용. 추출 실패 시 빈 문자열 반환.
+    pdfplumber 사용. 표 구조·다단 레이아웃 추출 강화.
+    - page.extract_text()로 본문 추출
+    - page.extract_tables()로 표 구조를 Markdown 형태로 추가
+    추출 텍스트가 비어있으면 경고 출력 (이미지 PDF 가능성).
     """
     try:
-        from pypdf import PdfReader  # type: ignore[import]
+        import pdfplumber  # type: ignore[import]
     except ImportError:
-        raise ImportError("pypdf 패키지가 필요합니다: pip install pypdf>=5.1")
+        raise ImportError("pdfplumber 패키지가 필요합니다: pip install pdfplumber>=0.11")
 
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-        pages = reader.pages[:max_pages]
         parts: list[str] = []
-        for page in pages:
-            text = page.extract_text() or ""
-            parts.append(text)
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            pages = pdf.pages[:max_pages]
+            for page in pages:
+                # 본문 텍스트 추출
+                text = page.extract_text(x_tolerance=3, y_tolerance=3) or ""
+                if text.strip():
+                    parts.append(text)
+
+                # 표 구조 추출 → Markdown 변환
+                try:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        if not table:
+                            continue
+                        md_rows: list[str] = []
+                        for i, row in enumerate(table):
+                            cells = [str(c or "").replace("|", "\\|").replace("\n", " ") for c in row]
+                            md_rows.append("| " + " | ".join(cells) + " |")
+                            if i == 0:
+                                md_rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                        if md_rows:
+                            parts.append("\n".join(md_rows))
+                except Exception:
+                    pass  # 표 추출 실패 시 본문만 사용
+
         result = "\n\n".join(parts)
-        return _collapse_whitespace(result) if result.strip() else ""
+        if not result.strip():
+            print(
+                "[WARNING] PDF 텍스트 추출 결과가 비어 있습니다. "
+                "이미지 기반 PDF이거나 OCR이 필요한 파일일 수 있습니다.",
+                file=sys.stderr,
+            )
+            return ""
+        return _collapse_whitespace(result)
     except Exception as exc:
         return f"[PDF 추출 오류: {exc}]"
 

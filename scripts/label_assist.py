@@ -45,7 +45,7 @@ def _call_analyze(api_base: str, source_path: Path) -> dict:
             if str(_root) not in _sys.path:
                 _sys.path.insert(0, str(_root))
             from app.preprocess import pdf_to_text
-            text = pdf_to_text(file_bytes, max_pages=5)
+            text = pdf_to_text(file_bytes, max_pages=10)
             file_bytes = text.encode("utf-8")
             upload_name = source_path.stem + "_extracted.txt"
             mime = "text/plain"
