@@ -13,7 +13,7 @@ from .schemas import RawExtraction, Rule
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "gemini-1.5-flash-002"
+_DEFAULT_MODEL = "gemini-flash-latest"
 _DEFAULT_TTL_SECONDS = 3600
 
 _state: dict[str, Any] = {
@@ -47,7 +47,8 @@ def _rules_signature(rules: list[Rule]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _ensure_cache(rules: list[Rule]) -> str:
+def _ensure_cache(rules: list[Rule]) -> str | None:
+    """Context Caching 시도. 미지원 모델이면 None 반환 (no-cache fallback)."""
     from google.genai import types  # type: ignore[import-not-found]
 
     sig = _rules_signature(rules)
@@ -55,6 +56,10 @@ def _ensure_cache(rules: list[Rule]) -> str:
     cache_name = _state.get("cache_name")
     cache_signature = _state.get("cache_signature")
     cache_expires_at = _state.get("cache_expires_at")
+
+    # 캐시 불가 확인 완료 → 바로 None 반환
+    if _state.get("cache_disabled"):
+        return None
 
     if (
         cache_name
@@ -66,18 +71,23 @@ def _ensure_cache(rules: list[Rule]) -> str:
 
     client = _get_client()
     system_instruction = build_system_instruction(rules)
-    cache = client.caches.create(
-        model=_model_name(),
-        config=types.CreateCachedContentConfig(
-            system_instruction=system_instruction,
-            ttl=f"{_DEFAULT_TTL_SECONDS}s",
-        ),
-    )
-    _state["cache_name"] = cache.name
-    _state["cache_signature"] = sig
-    _state["cache_expires_at"] = now + timedelta(seconds=_DEFAULT_TTL_SECONDS)
-    log.info("created Gemini cache name=%s signature=%s", cache.name, sig[:12])
-    return cache.name
+    try:
+        cache = client.caches.create(
+            model=_model_name(),
+            config=types.CreateCachedContentConfig(
+                system_instruction=system_instruction,
+                ttl=f"{_DEFAULT_TTL_SECONDS}s",
+            ),
+        )
+        _state["cache_name"] = cache.name
+        _state["cache_signature"] = sig
+        _state["cache_expires_at"] = now + timedelta(seconds=_DEFAULT_TTL_SECONDS)
+        log.info("created Gemini cache name=%s signature=%s", cache.name, sig[:12])
+        return cache.name
+    except Exception as exc:
+        log.warning("Context Caching 불가 (%s) — 캐시 없이 직접 호출로 전환", exc)
+        _state["cache_disabled"] = True
+        return None
 
 
 def extract(markdown: str, rules: list[Rule]) -> RawExtraction:
@@ -85,15 +95,33 @@ def extract(markdown: str, rules: list[Rule]) -> RawExtraction:
 
     client = _get_client()
     cache_name = _ensure_cache(rules)
-    response = client.models.generate_content(
-        model=_model_name(),
-        contents=markdown,
-        config=types.GenerateContentConfig(
+    system_instruction = build_system_instruction(rules)
+
+    if cache_name:
+        # 캐시 사용
+        config = types.GenerateContentConfig(
             cached_content=cache_name,
             response_mime_type="application/json",
             temperature=0.1,
-        ),
-    )
+        )
+        response = client.models.generate_content(
+            model=_model_name(),
+            contents=markdown,
+            config=config,
+        )
+    else:
+        # 캐시 미지원 → system_instruction + user 메시지 직접 전송
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            response_mime_type="application/json",
+            temperature=0.1,
+        )
+        response = client.models.generate_content(
+            model=_model_name(),
+            contents=markdown,
+            config=config,
+        )
+
     usage = getattr(response, "usage_metadata", None)
     _state["last_usage"] = _serialize_usage(usage)
     log.info("gemini usage=%s", _state["last_usage"])

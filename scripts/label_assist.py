@@ -29,14 +29,46 @@ def _find_source(notice_dir: Path) -> Path | None:
     return None
 
 
+_MAX_DIRECT_BYTES = 9 * 1024 * 1024  # 9MB 초과 시 텍스트 추출 후 전송
+_ANALYZE_TIMEOUT = 300  # 초
+
+
 def _call_analyze(api_base: str, source_path: Path) -> dict:
     url = f"{api_base.rstrip('/')}/analyze"
+
+    # 대용량 PDF → 텍스트 추출 후 txt로 전송
+    file_bytes = source_path.read_bytes()
+    if source_path.suffix.lower() == ".pdf" and len(file_bytes) > _MAX_DIRECT_BYTES:
+        try:
+            import sys as _sys
+            _root = Path(__file__).resolve().parent.parent
+            if str(_root) not in _sys.path:
+                _sys.path.insert(0, str(_root))
+            from app.preprocess import pdf_to_text
+            text = pdf_to_text(file_bytes, max_pages=5)
+            file_bytes = text.encode("utf-8")
+            upload_name = source_path.stem + "_extracted.txt"
+            mime = "text/plain"
+            print(f"[INFO] 대용량 PDF ({source_path.stat().st_size // 1024 // 1024}MB) → 텍스트 추출 ({len(text)} chars)")
+        except Exception as exc:
+            print(f"[ERROR] PDF 텍스트 추출 실패: {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        upload_name = source_path.name
+        mime = None  # requests가 자동 결정
+
     try:
-        with open(source_path, "rb") as f:
+        if mime:
             resp = requests.post(
                 url,
-                files={"file": (source_path.name, f)},
-                timeout=120,
+                files={"file": (upload_name, file_bytes, mime)},
+                timeout=_ANALYZE_TIMEOUT,
+            )
+        else:
+            resp = requests.post(
+                url,
+                files={"file": (upload_name, file_bytes)},
+                timeout=_ANALYZE_TIMEOUT,
             )
     except requests.exceptions.ConnectionError:
         print(
@@ -47,7 +79,7 @@ def _call_analyze(api_base: str, source_path: Path) -> dict:
         sys.exit(1)
     except requests.exceptions.Timeout:
         print(
-            f"[ERROR] API 응답 시간 초과 (120초). 서버 부하를 확인하세요: {api_base}",
+            f"[ERROR] API 응답 시간 초과 ({_ANALYZE_TIMEOUT}초). 서버 부하를 확인하세요: {api_base}",
             file=sys.stderr,
         )
         sys.exit(1)
