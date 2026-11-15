@@ -1,0 +1,54 @@
+# 절차 정의: 회원정보 - 등록 업종 추가 (데모)
+#
+# - steps의 순서가 곧 실행 순서다. 엔진은 이 순서를 건너뛰지 않는다.
+# - approver가 있는 단계는 그 주체가 승인 링크에서 승인해야 실행된다. AI는 승인할 수 없다.
+# - action은 procedure_mcp/actions/ 아래 함수 이름이다.
+# - verification은 실행 전에 사용자에게 보여주는 "절차 카드"의 근거다.
+
+id: member_upjong_add
+name: 회원정보 변경 - 등록 업종 추가
+version: "0.1"
+risk: high
+description: >
+  회원의 등록 업종에 새 업종을 추가한다.
+  등록 업종은 추천 공고와 입찰 참가자격 판정에 바로 영향을 주므로 회원 확인과 관리자 승인을 거친다.
+
+verification:
+  owner: 운영팀 (데모)
+  reviewed_by: 입찰 실무 담당자 (데모)
+  reviewed_at: "2026-11-15"
+  tested: 데모 사이트 자동 테스트 통과 (tests/test_procedure_engine.py)
+  notes: 데모용 절차입니다. 실제 회원 데이터에는 연결되지 않습니다.
+
+inputs:
+  upjong:
+    label: 추가할 업종
+    required: true
+    example: 토목공사업
+
+steps:
+  - id: open_site
+    name: 사이트 접속
+    action: member_demo.open_site
+
+  - id: login
+    name: 로그인
+    action: member_demo.login
+
+  - id: read_current
+    name: 현재 업종 확인
+    action: member_demo.read_current
+
+  - id: fill
+    name: 업종 추가 입력
+    action: member_demo.fill_upjong
+    approver: 회원          # 회원이 추가할 업종이 맞는지 확인
+
+  - id: save
+    name: 저장
+    action: member_demo.save
+    approver: 관리자        # 되돌리기 어려운 변경이므로 운영 담당자 승인
+
+  - id: verify
+    name: 반영 확인
+    action: member_demo.verify
