@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from .definitions import Procedure, StepDef
-from .notifier import Notifier
+from .notifier import ApprovalRequest, Notifier
 from .store import RunStore
 
 TERMINAL = frozenset({"completed", "failed", "rejected", "cancelled"})
@@ -40,7 +40,7 @@ class StepContext:
     run_id: str
     inputs: Mapping[str, str]
     state: dict[str, Any]  # 단계 사이에 넘길 값. 실행 기록에 함께 저장된다.
-    base_url: str
+    base_url: str  # 이 서버의 로컬 주소 (데모 사이트 등 서버가 직접 여는 페이지용)
     _browser: BrowserProvider | None = field(default=None, repr=False)
 
     async def page(self) -> Any:
@@ -69,6 +69,7 @@ class Engine:
         notifier: Notifier,
         *,
         base_url: str,
+        local_url: str | None = None,
         browser: BrowserProvider | None = None,
         approval_ttl: timedelta = timedelta(hours=24),
     ):
@@ -76,7 +77,8 @@ class Engine:
         self.actions = dict(actions)
         self.store = store
         self.notifier = notifier
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url.rstrip("/")  # 승인 링크에 쓰는 공개 주소
+        self.local_url = (local_url or base_url).rstrip("/")  # 서버가 스스로 접속할 때 쓰는 주소
         self.browser = browser
         self.approval_ttl = approval_ttl
         self._locks: dict[str, asyncio.Lock] = {}
@@ -152,6 +154,7 @@ class Engine:
         - executed: 단계를 실행했고 확인까지 통과
         - failed: 단계 실행 또는 확인 실패 → 절차 중단
         - approval_requested: 승인 단계라서 승인자에게 요청을 보냄 (실행 안 함)
+        - notify_failed: 승인 요청을 보내지 못함 (실행 안 함, 다시 호출하면 다시 보냄)
         - awaiting_approval: 이미 요청했고 아직 결정 전 (실행 안 함)
         - finished: 이미 끝난 실행
         """
@@ -168,7 +171,9 @@ class Engine:
                 if step["status"] == "pending" or (
                     step["status"] == "awaiting_approval" and self._approval_expired(step)
                 ):
-                    self._request_approval(run, proc, step_def, step)
+                    error = await self._request_approval(run, proc, step_def, step)
+                    if error:
+                        return {"outcome": "notify_failed", "run": run, "step": step, "error": error}
                     return {"outcome": "approval_requested", "run": run, "step": step}
                 if step["status"] == "awaiting_approval":
                     return {"outcome": "awaiting_approval", "run": run, "step": step}
@@ -258,24 +263,47 @@ class Engine:
         return run
 
     # ── 내부 ────────────────────────────────────────────────
-    def _request_approval(self, run: dict, proc: Procedure, step_def: StepDef, step: dict) -> None:
+    async def _request_approval(self, run: dict, proc: Procedure, step_def: StepDef, step: dict) -> str | None:
+        """승인 요청을 만들고 승인자에게 보낸다. 보내지 못하면 단계를 대기 상태로 되돌리고 오류 문구를 돌려준다."""
         token = secrets.token_urlsafe(24)
         request_id = secrets.token_hex(4)
         expires = _now() + self.approval_ttl
-        self.store.save_approval(
-            token,
-            {
-                "request_id": request_id,
-                "run_id": run["run_id"],
-                "step_id": step["id"],
-                "role": step_def.approver,
-                "created_at": _ts(),
-                "expires_at": _ts(expires),
-                "decided_at": None,
-                "decision": None,
-            },
+        record = {
+            "request_id": request_id,
+            "run_id": run["run_id"],
+            "step_id": step["id"],
+            "role": step_def.approver,
+            "created_at": _ts(),
+            "expires_at": _ts(expires),
+            "decided_at": None,
+            "decision": None,
+        }
+        self.store.save_approval(token, record)
+        # 원문 토큰이 담긴 링크는 승인자에게만 간다. 실행 기록과 AI 응답에는 남기지 않는다.
+        request = ApprovalRequest(
+            role=step_def.approver,
+            procedure_name=proc.name,
+            step_name=step_def.name,
+            run_id=run["run_id"],
+            link=f"{self.base_url}/approve/{token}",
+            expires_at=_ts(expires),
         )
+        try:
+            note = await asyncio.to_thread(self.notifier.send_approval_request, request)
+        except Exception as exc:  # 발송 실패: 이 링크는 무효로 하고 단계는 다시 요청할 수 있게 둔다
+            message = (str(exc) or type(exc).__name__).replace(request.link, "(승인 링크)").replace(token, "***")[:300]
+            record.update(decided_at=_ts(), decision="notify_failed")
+            self.store.save_approval(token, record)
+            step["status"] = "pending"
+            step["approval"] = None
+            step["error"] = message
+            run["status"] = "in_progress"
+            self._event(run, "approval_notify_failed", step=step["id"], detail=message)
+            self.store.save_run(run)
+            return message
+
         step["status"] = "awaiting_approval"
+        step["error"] = None
         step["approval"] = {
             "request_id": request_id,
             "role": step_def.approver,
@@ -285,17 +313,10 @@ class Engine:
             "decided_at": None,
         }
         run["status"] = "awaiting_approval"
-        self._event(run, "approval_requested", step=step["id"], detail=f"{step_def.approver}에게 발송")
+        self._event(run, "approval_requested", step=step["id"], detail=note or f"{step_def.approver}에게 발송")
         self.store.save_run(run)
         self._decided[run["run_id"]] = asyncio.Event()
-        # 원문 토큰이 담긴 링크는 승인자에게만 간다. 실행 기록과 AI 응답에는 남기지 않는다.
-        self.notifier.send_approval_request(
-            role=step_def.approver,
-            procedure_name=proc.name,
-            step_name=step_def.name,
-            link=f"{self.base_url}/approve/{token}",
-            run_id=run["run_id"],
-        )
+        return None
 
     async def _execute(self, run: dict, proc: Procedure, step_def: StepDef, step: dict) -> bool:
         step["status"] = "running"
@@ -307,7 +328,7 @@ class Engine:
             run_id=run["run_id"],
             inputs=run["inputs"],
             state=run["state"],
-            base_url=self.base_url,
+            base_url=self.local_url,
             _browser=self.browser,
         )
         try:

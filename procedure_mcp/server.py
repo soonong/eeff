@@ -258,6 +258,12 @@ def _describe_outcome(engine: Engine, result: dict) -> str:
             "확인에 실패해서 절차를 멈췄습니다. 이후 단계는 실행되지 않습니다. 사용자에게 알리고 다음 행동을 물어보세요.\n\n"
             f"{matrix}"
         )
+    if outcome == "notify_failed":
+        return (
+            f"⚠️ {n}단계 '{step['name']}': {step.get('approver')}에게 승인 요청을 보내지 못했습니다 — {result['error']}\n"
+            "이 단계는 실행되지 않았습니다. 사용자에게 알리고, 원인(번호·알림톡 설정 등)을 해결한 뒤 "
+            f"run_next_step을 다시 호출하면 승인 요청을 다시 보냅니다.\n\n{matrix}"
+        )
     role = step["approval"]["role"]
     if outcome == "approval_requested":
         return (

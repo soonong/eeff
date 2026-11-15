@@ -37,14 +37,15 @@ PROC = parse_procedure(
 
 class FakeNotifier:
     def __init__(self):
-        self.sent: list[dict] = []
+        self.sent: list = []
 
-    def send_approval_request(self, **kwargs):
-        self.sent.append(kwargs)
+    def send_approval_request(self, request):
+        self.sent.append(request)
+        return f"{request.role}에게 발송 (테스트)"
 
     @property
     def last_token(self) -> str:
-        return self.sent[-1]["link"].rsplit("/", 1)[-1]
+        return self.sent[-1].token
 
 
 def make_engine(tmp_path: Path, *, fail_on: str | None = None):
@@ -121,7 +122,7 @@ def test_steps_run_in_order_and_approval_gate_blocks(tmp_path):
     out = run(engine.run_next(rid))
     assert out["outcome"] == "approval_requested"
     assert out["run"]["status"] == "awaiting_approval"
-    assert len(notifier.sent) == 1 and notifier.sent[0]["role"] == "회원"
+    assert len(notifier.sent) == 1 and notifier.sent[0].role == "회원"
 
     # AI가 재촉해도 승인 전에는 실행되지 않고, 요청도 중복 발송되지 않는다
     for _ in range(3):
@@ -334,6 +335,6 @@ def test_demo_procedure_end_to_end_with_browser(tmp_path):
 
     assert final["status"] == "completed", final
     assert outcomes.count("approval_requested") == 2
-    assert [n["role"] for n in notifier.sent] == ["회원", "관리자"]
+    assert [n.role for n in notifier.sent] == ["회원", "관리자"]
     assert "포장공사업 → 포장공사업, 토목공사업" in final["steps"][-1]["evidence"]
     assert all(s["screenshot"] for s in final["steps"])

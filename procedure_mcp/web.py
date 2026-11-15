@@ -180,6 +180,7 @@ EVENT_LABELS = {
     "step_done": "단계 완료",
     "step_failed": "단계 실패",
     "approval_requested": "승인 요청",
+    "approval_notify_failed": "승인 요청 발송 실패",
     "approved": "승인",
     "rejected": "거절",
     "cancelled": "취소",
