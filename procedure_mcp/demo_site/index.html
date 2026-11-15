@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>데모 입찰서비스 - 회원정보</title>
+<style>
+  body { font-family: sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; color: #222; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 20px; margin-top: 16px; }
+  label { display: block; margin: 10px 0 4px; font-size: 14px; }
+  input { width: 100%; padding: 8px; box-sizing: border-box; }
+  button { margin-top: 14px; padding: 8px 16px; background: #2b59c3; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+  ul { padding-left: 20px; }
+  .ok { color: #1a7f37; font-weight: bold; margin-top: 12px; }
+  .hidden { display: none; }
+  .badge { font-size: 12px; background: #eef; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>데모 입찰서비스 <span class="badge">테스트용 가짜 사이트</span></h1>
+
+  <!-- 로그인 화면 -->
+  <div id="login" class="card">
+    <h2>로그인</h2>
+    <label for="uid">아이디</label>
+    <input id="uid">
+    <label for="pw">비밀번호</label>
+    <input id="pw" type="password">
+    <button id="loginBtn">로그인</button>
+  </div>
+
+  <!-- 회원정보 화면 -->
+  <div id="profile" class="card hidden">
+    <h2>회원정보</h2>
+    <p>회사명: (주)데모건설</p>
+    <h3>등록 업종</h3>
+    <ul id="upjongList">
+      <li>포장공사업</li>
+    </ul>
+    <label for="newUpjong">업종 추가</label>
+    <input id="newUpjong" placeholder="예: 토목공사업">
+    <button id="saveBtn">저장</button>
+    <div id="msg" class="ok hidden" role="status"></div>
+  </div>
+
+<script>
+  document.getElementById('loginBtn').onclick = () => {
+    if (document.getElementById('uid').value && document.getElementById('pw').value) {
+      document.getElementById('login').classList.add('hidden');
+      // 실제 사이트처럼 약간의 로딩 지연
+      setTimeout(() => document.getElementById('profile').classList.remove('hidden'), 400);
+    }
+  };
+  document.getElementById('saveBtn').onclick = () => {
+    const v = document.getElementById('newUpjong').value.trim();
+    if (!v) return;
+    setTimeout(() => {
+      const li = document.createElement('li');
+      li.textContent = v;
+      document.getElementById('upjongList').appendChild(li);
+      document.getElementById('newUpjong').value = '';
+      const m = document.getElementById('msg');
+      m.textContent = '저장되었습니다: ' + v;
+      m.classList.remove('hidden');
+    }, 600);
+  };
+</script>
+</body>
+</html>

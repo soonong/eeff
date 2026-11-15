@@ -100,6 +100,17 @@ templates/, static/  # 웹 UI
 tests/               # pytest
 ```
 
+## 절차 엔진 MCP 서버 (프로토타입)
+
+검증된 절차를 한 단계씩 실행하고, 중요한 단계는 사람 승인을 받으며, 진행 상황을 절차 매트릭스로 보여주는 MCP 서버.
+분석 시스템과 별개로 동작하며 의존성도 따로 관리한다 → [`procedure_mcp/README.md`](procedure_mcp/README.md)
+
+```bash
+pip install -r procedure_mcp/requirements.txt
+python -m procedure_mcp
+claude mcp add --transport http procedure http://127.0.0.1:8765/mcp
+```
+
 ## 라이선스
 
 내부 사용 목적.
